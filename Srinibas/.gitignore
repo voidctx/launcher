@@ -1,0 +1,4 @@
+.tools/
+data/launcher_store.json
+node_modules/
+.env

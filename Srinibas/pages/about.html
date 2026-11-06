@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About — Vanilla Next.js</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-brand"><span>▲</span> Launcher</div>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/about" class="active">About</a>
+      <a href="/login" class="btn btn-primary btn-sm">Sign In</a>
+    </div>
+  </nav>
+
+  <div class="container" style="max-width:800px">
+    <h1 style="font-size:36px;font-weight:800;letter-spacing:-1px;margin-bottom:8px">About This Project</h1>
+    <p style="color:var(--muted);font-size:16px;margin-bottom:36px">A Next.js-style runtime built from scratch with <strong style="color:#fff">zero npm packages</strong>.</p>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-body">
+        <h3 style="margin-bottom:10px">🎯 What Is This?</h3>
+        <p style="color:var(--muted);line-height:1.7;font-size:14px">
+          This project recreates the core developer experience of Next.js using only native Node.js APIs and standard web technologies. There are <strong style="color:#fff">no npm packages installed</strong> — no React, no Webpack, no Express, no third-party libraries at all.<br><br>
+          Features include file-based page routing (<code>pages/</code>), API route handlers (<code>pages/api/</code>), server-side rendering with <code>getServerSideProps</code>, static asset serving (<code>public/</code>), native scrypt authentication, and a token-bucket rate limiter.
+        </p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-body">
+        <h3 style="margin-bottom:10px">📁 Project Structure</h3>
+        <div class="code" style="font-size:13px">├── launcher.mjs           # HTTP server entry point
+├── pages/                 # File-based routing (Next.js style)
+│   ├── index.html         # /
+│   ├── about.html         # /about
+│   ├── login.html         # /login
+│   ├── dashboard.mjs      # /dashboard (SSR with getServerSideProps)
+│   ├── 404.html           # Custom 404
+│   └── api/               # API route handlers
+│       ├── hello.mjs      # GET /api/hello
+│       ├── auth.mjs       # POST /api/auth
+│       ├── services.mjs   # POST /api/services
+│       └── ratelimit.mjs  # GET /api/ratelimit
+├── public/                # Static files (CSS, JS, images)
+│   ├── style.css
+│   └── app.js
+├── src/                   # Core engine (Srinibas Das)
+│   ├── router.mjs         # File-based router
+│   ├── auth.mjs           # Scrypt hashing, sessions, CSRF
+│   ├── apikey.mjs         # API key generation &amp; rotation
+│   ├── ratelimit.mjs      # Token-bucket algorithm
+│   ├── security.mjs       # Host/path sanitisation, timeouts
+│   └── store.mjs          # In-memory + persistent JSON store
+└── tests/
+    └── test_all.mjs       # Automated test suite</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <h3 style="margin-bottom:10px">👤 Author</h3>
+        <p style="color:var(--muted);font-size:14px"><strong style="color:#fff">Srinibas Das</strong> — 7th Semester B.Tech Project<br>Auth, Security, Rate Limiting, Dashboard &amp; Vanilla Next.js Framework</p>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">Vanilla Next.js • Srinibas Das • 7th Semester Project</footer>
+</body>
+</html>

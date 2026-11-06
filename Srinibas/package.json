@@ -1,0 +1,13 @@
+{
+  "name": "vanilla-nextjs",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Vanilla Next.js — file-based routing, SSR, auth, rate limiting. Zero npm packages.",
+  "main": "launcher.mjs",
+  "scripts": {
+    "start": "node launcher.mjs",
+    "test": "node tests/test_all.mjs"
+  },
+  "author": "Srinibas Das",
+  "license": "MIT"
+}
