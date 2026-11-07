@@ -1,13 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 
-// const blockedBuiltins = [
-//   'fs', 'path', 'os', 'child_process', 'cluster',
-//   'worker_threads', 'dgram', 'net', 'tls',
-//   'http', 'https', 'process', 'perf_hooks',
-//   'vm', 'repl', 'async_hooks', 'inspector',
-//   'v8', 'buffer', 'timers', 'events'
-// ];
 const blockedBuiltins = [
   'os', 'child_process', 'cluster',
   'worker_threads', 'dgram', 'net', 'tls',
