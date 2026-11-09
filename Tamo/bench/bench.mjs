@@ -3,10 +3,10 @@ import { createRuntime, scan } from '../src/index.mjs';
 /**
  * Numbers for the report. Run on the machine you present on:
  *     node bench/bench.mjs
- * Options (environment): COLD=20  WARM=2000  SERVICES=20
+ * Options (environment): COLD=50  WARM=2000  SERVICES=20
  */
 
-const COLD = Number(process.env.COLD || 20);
+const COLD = Number(process.env.COLD || 50);
 const WARM = Number(process.env.WARM || 2000);
 const SERVICES = Number(process.env.SERVICES || 20);
 
@@ -35,17 +35,22 @@ console.log(`node ${process.version}  ${process.platform}/${process.arch}  cpus=
 }
 
 // 2. cold start: worker start + first request
+//    The very first start in a process also loads the worker's source files from disk,
+//    so it is reported separately from the steady state.
 {
   const rt = createRuntime();
-  const times = [];
-  for (let i = 0; i < COLD; i++) {
+  const run = async () => {
     rt.register('cold', { code: CODE });
     const t0 = performance.now();
     await rt.run('cold', REQ);
-    times.push(performance.now() - t0);
-  }
+    return performance.now() - t0;
+  };
+  const first = await run();
+  const times = [];
+  for (let i = 0; i < COLD; i++) times.push(await run());
   await rt.shutdown();
-  console.log(`cold start (spawn + 1st request)   p50 ${fmt(pct(times, 50))} ms   p95 ${fmt(pct(times, 95))} ms   n=${COLD}`);
+  console.log(`cold start, first in process       ${fmt(first)} ms`);
+  console.log(`cold start (spawn + 1st request)   p50 ${fmt(pct(times, 50))} ms   p95 ${fmt(pct(times, 95))} ms   max ${fmt(Math.max(...times))} ms   n=${COLD}`);
 }
 
 // 3. warm latency, one request at a time

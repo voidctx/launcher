@@ -16,6 +16,7 @@ Tamo/
     errors.mjs         ServiceError
   test/                139 tests  (npm test)
   bench/bench.mjs      numbers for the report (npm run bench)
+  bench/memcycle.mjs   memory under load/evict churn (npm run bench:mem)
 ```
 
 ## Service format
@@ -94,18 +95,30 @@ RESPONSE_TOO_LARGE 502, TIMEOUT 504, QUEUE_FULL 503, QUARANTINED 503, SHUTTING_D
      `Content-Security-Policy: sandbox` are always added
    - requests to a service are queued one at a time (max 100), so a burst on an unloaded service starts one worker
 
-## Measured (1 vCPU Linux VM, Node 22; run `npm run bench` on your own machine)
+## Measured (`npm run bench`, `npm run bench:mem`)
 
-| | |
-|---|---|
-| scan of a small service | 0.03 ms median |
-| cold start (start worker + first request) | 34 ms median, 40 ms p95 |
-| warm request | 0.20 ms median, 1.7 ms p99, about 3600 req/s on one service |
-| memory per loaded service | about 9 MB (about 7 MB of it JS heap) |
-| registered but not loaded | about 0 |
+| | MacBook Air, Node 24.5, arm64, 10 cores | Linux VM, Node 22, 1 vCPU |
+|---|---|---|
+| scan of a small service | 0.01 ms median | 0.04 ms median |
+| cold start (start worker + first request) | 12 ms median (29 ms was the slowest of 20) | 34 ms median, 38 ms max |
+| warm request | 0.13 ms median, 0.17 ms p99 | 0.21 ms median, 1.7 ms p99 |
+| warm throughput, one service | about 7,700 req/s | about 3,500 req/s |
+| memory per loaded service | 9.1 MB (about 6.9 MB JS heap) | 9.2 MB |
+| registered but not loaded | about 0 | about 0 |
 
-The cold start is 30-40 ms, not 5-10 ms. The idle cost of a service that is not loaded is close to zero,
-which is the real saving.
+Cold start is a new V8 isolate plus Node's bootstrap, so it depends on the machine: about 12 ms on the Mac,
+about 34 ms on the slow VM. It is not the 5-10 ms of the original proposal. The saving is that a service
+that is not loaded costs close to nothing; a loaded one costs about 9 MB, so the cap on resident
+services decides the memory ceiling (see below).
+
+Memory under load/evict churn (`npm run bench:mem`: 100 services through a cap of 20, six passes, 600 cold
+starts). Mac: RSS 277 MB after pass 1 and 290 MB after pass 6, growth shrinking to almost nothing, so evicted
+workers' memory is reused and nothing leaks. After everything was unloaded the Mac process stayed about 188 MB
+above its baseline: macOS keeps freed memory in the process instead of shrinking RSS, and the next workers
+reuse it. The Linux VM gave most of it back (42 MB over baseline after unloading). So RSS is bounded by the
+cap on resident services, not by how many services have ever been loaded. Size the cap as cap x 12 MB
+typical (measured under churn), up to cap x 70 MB if every service sits at its heap limit. Do not claim
+that memory returns to the operating system after an unload on macOS; on Linux it largely does.
 
 ## Limits (be upfront about these)
 
@@ -122,7 +135,8 @@ which is the real saving.
   its own `count`.
 - `Content-Security-Policy: sandbox` stops scripts in HTML responses. Pass `forceResponseHeaders: {}` to
   `createRuntime` to turn it off.
-- Not verified here: macOS/Windows, Node 18/20, true parallel execution on several cores.
+- Test suite verified on macOS arm64 with Node 24.5 and on Linux with Node 22 (all 139 pass, including the
+  parallel-execution test on 10 cores). Not verified: Node 18/20, Windows.
 
 ## Viva questions
 

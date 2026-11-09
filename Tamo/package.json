@@ -9,6 +9,7 @@
   },
   "scripts": {
     "test": "node --test",
-    "bench": "node bench/bench.mjs"
+    "bench": "node bench/bench.mjs",
+    "bench:mem": "node --expose-gc bench/memcycle.mjs"
   }
 }
