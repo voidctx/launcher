@@ -1,0 +1,23 @@
+{
+  "name": "launcher-admin-module",
+  "version": "1.0.0",
+  "description": "Admin Dashboard and Backend for Launcher Single-Port Microservices Gateway (Trisha's Module)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "single-port",
+    "microservices",
+    "admin-dashboard",
+    "lazy-loading",
+    "gateway"
+  ],
+  "author": "Trisha",
+  "license": "MIT",
+  "dependencies": {
+    "cookie-parser": "^1.4.6",
+    "express": "^4.19.2"
+  }
+}
