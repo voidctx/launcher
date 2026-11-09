@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Launcher | Admin Gateway Dashboard</title>
+  <link rel="stylesheet" href="css/dashboard.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body class="bg-dark text-light">
+
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- AUTH SCREEN -->
+  <div id="auth-screen" class="auth-wrapper">
+    <div class="auth-card">
+      <div class="auth-header">
+        <div class="logo-badge"><span class="icon">🚀</span></div>
+        <h1>Launcher Admin</h1>
+        <p class="subtitle">Single-Port Microservices Gateway Control Plane</p>
+      </div>
+
+      <form id="login-form" class="auth-form">
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input type="text" id="username" class="form-control" placeholder="admin" required value="admin">
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" class="form-control" placeholder="••••••••" required value="admin123">
+        </div>
+
+        <button type="submit" id="login-btn" class="btn btn-primary btn-block">
+          <span>Authenticate as Administrator</span>
+        </button>
+
+        <div class="auth-footer-hint">
+          <span>Role: <code>admin</code> (Protected by HttpOnly Session Cookie)</span>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MAIN DASHBOARD -->
+  <div id="dashboard-screen" class="dashboard-wrapper hidden">
+    <header class="navbar">
+      <div class="brand">
+        <div class="brand-badge">⚡</div>
+        <div class="brand-text">
+          <span class="title">Launcher Core</span>
+          <span class="tag">Single-Port Gateway Admin</span>
+        </div>
+      </div>
+
+      <div class="nav-controls">
+        <div class="auto-refresh-pill">
+          <span class="live-dot pulse"></span>
+          <span class="label">Live Polling</span>
+          <input type="checkbox" id="auto-refresh-toggle" checked>
+        </div>
+
+        <button id="refresh-btn" class="btn btn-icon" title="Refresh Now">🔄</button>
+
+        <div class="user-pill">
+          <span class="user-avatar">👤</span>
+          <span id="current-username" class="user-name">admin</span>
+          <span class="role-badge">ADMIN</span>
+        </div>
+
+        <button id="logout-btn" class="btn btn-outline-danger btn-sm">Logout</button>
+      </div>
+    </header>
+
+    <main class="dashboard-body">
+      <!-- SYSTEM TELEMETRY -->
+      <section class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-top">
+            <span class="metric-label">Registered Services</span>
+            <span class="metric-icon">📦</span>
+          </div>
+          <div class="metric-value" id="stat-total-services">-</div>
+          <div class="metric-footer">Single-port multiplexing</div>
+        </div>
+
+        <div class="metric-card card-accent-green">
+          <div class="metric-top">
+            <span class="metric-label">Resident in RAM</span>
+            <span class="metric-icon">🟢</span>
+          </div>
+          <div class="metric-value" id="stat-loaded-services">-</div>
+          <div class="metric-footer">Active in gateway memory</div>
+        </div>
+
+        <div class="metric-card card-accent-blue">
+          <div class="metric-top">
+            <span class="metric-label">Evicted / Idle</span>
+            <span class="metric-icon">⚪</span>
+          </div>
+          <div class="metric-value" id="stat-evicted-services">-</div>
+          <div class="metric-footer">Zero-RAM footprint until hit</div>
+        </div>
+
+        <div class="metric-card card-accent-purple">
+          <div class="metric-top">
+            <span class="metric-label">RAM Usage vs Saved</span>
+            <span class="metric-icon">💾</span>
+          </div>
+          <div class="metric-value" id="stat-resident-memory">0 MB</div>
+          <div class="metric-footer">
+            Saved <strong id="stat-memory-saved" class="text-success">0 MB</strong> (~<span id="stat-savings-pct">0</span>%)
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-top">
+            <span class="metric-label">Gateway Total Requests</span>
+            <span class="metric-icon">⚡</span>
+          </div>
+          <div class="metric-value" id="stat-total-requests">-</div>
+          <div class="metric-footer">Handled across single port</div>
+        </div>
+      </section>
+
+      <!-- SERVICES CONTROLS -->
+      <section class="section-card">
+        <div class="section-header">
+          <div>
+            <h2>Service Directory & Concurrency State</h2>
+            <p class="section-subtitle">Real-time control plane to inspect, load, unload, update, and remove services</p>
+          </div>
+          <div class="header-actions">
+            <button id="open-register-modal-btn" class="btn btn-primary">
+              <span>+ Register New Service</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="services-table">
+            <thead>
+              <tr>
+                <th>Service Name & ID</th>
+                <th>Dispatch Route / Header</th>
+                <th>Status (RAM)</th>
+                <th>Resident Memory</th>
+                <th>Requests</th>
+                <th>Security Scan</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="services-table-body">
+              <tr>
+                <td colspan="7" class="text-center py-4 text-muted">Loading services...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- GATEWAY SIMULATION TESTER PANEL -->
+      <section class="section-card">
+        <div class="section-header">
+          <div>
+            <h3>Lazy-Loading Quick Tester</h3>
+            <p class="section-subtitle">Fire on-the-fly requests to observe instant cold-load (5-10ms) and RAM state change</p>
+          </div>
+        </div>
+        <div class="simulation-actions" id="simulation-pills"></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- REGISTER / EDIT SERVICE MODAL -->
+  <div id="service-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modal-title">Register New Service</h3>
+        <button type="button" class="modal-close-btn" id="modal-close-btn">&times;</button>
+      </div>
+
+      <form id="service-form" class="modal-form">
+        <input type="hidden" id="form-is-edit" value="false">
+        <input type="hidden" id="form-service-id" value="">
+
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label for="form-name">Service Name *</label>
+            <input type="text" id="form-name" class="form-control" placeholder="e.g. Orders Microservice" required>
+          </div>
+          <div class="form-group flex-1">
+            <label for="form-uri">URI Prefix *</label>
+            <input type="text" id="form-uri" class="form-control" placeholder="/svc/orders" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label for="form-header">Header Match (Optional)</label>
+            <input type="text" id="form-header" class="form-control" placeholder="x-service: orders">
+          </div>
+          <div class="form-group flex-1">
+            <label for="form-memory-cap">Memory Ceiling (MB)</label>
+            <input type="number" id="form-memory-cap" class="form-control" value="32" min="8" max="512">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="form-file">Handler Script File / Entry Path</label>
+          <input type="text" id="form-file" class="form-control" placeholder="./sample-services/hello-service.js" value="./sample-services/hello-service.js">
+        </div>
+
+        <div class="form-group">
+          <label for="form-desc">Description</label>
+          <textarea id="form-desc" class="form-control" rows="2" placeholder="Brief role of this web service"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="form-security">Security Scan Status (Tamo's Module)</label>
+          <select id="form-security" class="form-control">
+            <option value="approved">Approved (Clean)</option>
+            <option value="flagged">Flagged (Review Needed)</option>
+            <option value="rejected">Rejected (Malicious / Blocked)</option>
+          </select>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" id="modal-cancel-btn" class="btn btn-secondary">Cancel</button>
+          <button type="submit" id="modal-submit-btn" class="btn btn-primary">Save Service</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/dashboard.js"></script>
+</body>
+</html>
