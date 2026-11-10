@@ -1,0 +1,13 @@
+{
+  "name": "launcher",
+  "version": "1.0.0",
+  "description": "Zero-dependency, multi-tenant serverless execution runtime",
+  "type": "module",
+  "main": "launcher.mjs",
+  "scripts": {
+    "start": "node launcher.mjs",
+    "test": "node --test test/",
+    "bench": "node bench/bench.mjs",
+    "bench:mem": "node --expose-gc bench/memcycle.mjs"
+  }
+}
