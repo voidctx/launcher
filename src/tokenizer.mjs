@@ -1,28 +1,3 @@
-/**
- * Small, dependency-free JavaScript tokenizer.
- *
- * It is NOT a parser. It splits source text into tokens so that the scanner
- * can look at real code and ignore comments and the inside of strings. It
- * handles the cases that matter for not being fooled:
- *   - // and block comments (U+2028 / U+2029 also end a line comment)
- *   - '...' and "..." strings with escapes
- *   - template literals, including code inside ${ ... } (nested)
- *   - regular expression literals vs. division (heuristic)
- *   - identifiers written with \uXXXX / \u{X} escapes (decoded)
- *   - numbers, so that `0.5.constructor` still yields a `.constructor` token
- *
- * Token: { type, value, start, end, depth, prevDot, ...extra }
- *   type  'name' | 'string' | 'template' | 'number' | 'regex' | 'punct'
- *   name tokens also carry `escaped` (true if written with \u escapes)
- *   string tokens carry the decoded text in `value`
- *   template tokens carry `head`, `open` (ends with "${"), raw text in `value`
- *   depth is the bracket nesting level (0 = top level)
- *
- * The regex-vs-division decision is a heuristic. A wrong guess can hide code
- * from the scanner, which is why the scanner has a raw-text safety net and
- * why the runtime does not depend on the scanner being right.
- */
-
 export class TokenizeError extends Error {
   constructor(message, offset) {
     super(message);
@@ -38,16 +13,16 @@ const P2 = new Set([
   '+=', '-=', '*=', '%=', '&=', '|=', '^=', '<<', '>>', '**'
 ]);
 
-// After these words a "/" starts a regular expression.
 const REGEX_AFTER = new Set([
   'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void',
   'throw', 'case', 'do', 'else', 'yield', 'await'
 ]);
-// After these words a "{" is an object literal (an expression), not a block.
+
 const EXPR_BEFORE_BRACE = new Set([
   'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void',
   'throw', 'case', 'yield', 'await'
 ]);
+
 const CTRL_KEYWORDS = new Set(['if', 'while', 'for', 'with']);
 
 const WS_RE = /\s/;
@@ -56,13 +31,16 @@ const NUM_RE = /0[xX][0-9a-fA-F_]+n?|0[oO][0-7_]+n?|0[bB][01_]+n?|(?:\d[\d_]*\.?
 function isLT(c) {
   return c === '\n' || c === '\r' || c === '\u2028' || c === '\u2029';
 }
+
 function isDigit(code) {
   return code >= 48 && code <= 57;
 }
+
 function isIdStartCode(code) {
   return (code >= 65 && code <= 90) || (code >= 97 && code <= 122) ||
     code === 95 || code === 36 || code > 127;
 }
+
 function isIdPartCode(code) {
   return isIdStartCode(code) || isDigit(code);
 }
@@ -101,7 +79,6 @@ function braceIsBlock(prev) {
 }
 
 function cookString(raw) {
-  // raw = text between the quotes. Best effort decoding of escapes.
   if (raw.indexOf('\\') === -1) return raw;
   let out = '';
   for (let i = 0; i < raw.length; i++) {
@@ -146,7 +123,6 @@ function cookString(raw) {
   return out;
 }
 
-/** Offsets at which each line starts (\n, \r\n, \r, U+2028, U+2029). */
 export function computeLineStarts(src) {
   const lineStarts = [0];
   const n = src.length;
@@ -169,8 +145,8 @@ export function tokenize(src) {
 
   let pos = 0;
   let nest = 0;
-  const braceStack = []; // { tpl: bool, block: bool }
-  const parenStack = []; // bool: header of if/while/for/with
+  const braceStack = [];
+  const parenStack = [];
 
   const last = () => tokens[tokens.length - 1];
 
@@ -224,7 +200,6 @@ export function tokenize(src) {
   }
 
   function readName(start) {
-    // Reads an identifier (possibly with \u escapes). Returns { value, end, escaped }.
     let i = start;
     let value = '';
     let escaped = false;
@@ -264,13 +239,11 @@ export function tokenize(src) {
     const ch = src[pos];
     const code = src.charCodeAt(pos);
 
-    // whitespace and line terminators
     if (code === 32 || (code >= 9 && code <= 13) || (code > 127 && WS_RE.test(ch))) {
       pos++;
       continue;
     }
 
-    // identifiers (and #private names)
     if (isIdStartCode(code) || ch === '\\' ||
         (ch === '#' && pos + 1 < n && (isIdStartCode(src.charCodeAt(pos + 1)) || src[pos + 1] === '\\'))) {
       const priv = ch === '#';
@@ -281,7 +254,6 @@ export function tokenize(src) {
       continue;
     }
 
-    // numbers
     if (isDigit(code) || (ch === '.' && isDigit(src.charCodeAt(pos + 1)))) {
       NUM_RE.lastIndex = pos;
       const m = NUM_RE.exec(src);
@@ -291,7 +263,6 @@ export function tokenize(src) {
       continue;
     }
 
-    // strings
     if (ch === '"' || ch === "'") {
       let i = pos + 1;
       for (;;) {
@@ -310,7 +281,6 @@ export function tokenize(src) {
       continue;
     }
 
-    // template literals
     if (ch === '`') {
       const chunk = readTemplateChunk(pos + 1);
       add('template', chunk.raw, pos, chunk.end, { head: true, open: chunk.open });
@@ -319,7 +289,6 @@ export function tokenize(src) {
       continue;
     }
 
-    // slash: comment, regex or division
     if (ch === '/') {
       const nx = src[pos + 1];
       if (nx === '/') {
@@ -346,7 +315,6 @@ export function tokenize(src) {
       continue;
     }
 
-    // brackets
     if (ch === '{') {
       const block = braceIsBlock(last());
       add('punct', '{', pos, pos + 1);
@@ -398,7 +366,6 @@ export function tokenize(src) {
       continue;
     }
 
-    // punctuators
     const s4 = src.substr(pos, 4);
     if (P4.has(s4)) { add('punct', s4, pos, pos + 4); pos += 4; continue; }
     const s3 = s4.slice(0, 3);
@@ -416,7 +383,6 @@ export function tokenize(src) {
   return { tokens, lineStarts };
 }
 
-/** 1-based line and column of a character offset. */
 export function locate(lineStarts, offset) {
   let lo = 0;
   let hi = lineStarts.length - 1;

@@ -1,27 +1,10 @@
 import { ServiceError } from './errors.mjs';
 import { BLOCKED_RESPONSE_HEADERS } from './config.mjs';
 
-/**
- * What the sandboxed service receives (req) and what it may return.
- *
- * req = {
- *   method:  'GET',
- *   url:     '/abce?x=1',          original request target
- *   path:    '/abce',
- *   query:   { x: '1' },           repeated keys become arrays
- *   headers: { 'user-agent': ... } lower-case names, string values,
- *                                  credentials removed (see stripRequestHeaders)
- *   body:    string | null
- * }
- *
- * result = { status?: 200-599, headers?: { name: string }, body?: string }
- */
-
 const METHOD_RE = /^[A-Z]{1,16}$/;
 const HEADER_NAME_RE = /^[a-z0-9!#$%&'*+.^_`|~-]{1,64}$/;
 const HEADER_VALUE_RE = /^[\t\x20-\x7e]*$/;
 
-/** Validates the caller's request and returns the JSON string given to the sandbox. */
 export function normalizeRequest(input, options) {
   if (!input || typeof input !== 'object') {
     throw new ServiceError('BAD_REQUEST', { detail: 'request must be an object' });
@@ -84,11 +67,6 @@ function bad(detail) {
   return new ServiceError('BAD_RESPONSE', { detail });
 }
 
-/**
- * Checks and cleans what a service returned. Anything unexpected is an error
- * (BAD_RESPONSE), nothing is passed through unchecked.
- * Returns { status, headers, body, warnings }.
- */
 export function sanitizeResponse(raw, options) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw bad('the handler must return an object like { status, headers, body }');

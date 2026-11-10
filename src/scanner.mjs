@@ -3,30 +3,6 @@ import { analyze } from './source.mjs';
 import { computeLineStarts, locate } from './tokenizer.mjs';
 import { SCAN_DEFAULTS, DENY_MODULES, UNSUPPORTED_GLOBALS } from './config.mjs';
 
-/**
- * Deploy-time scanner.
- *
- *   scan(code, options?) -> {
- *     verdict:  'approved' | 'flagged' | 'rejected',
- *     reasons:  [{ id, severity, title, message, line?, column?, snippet? }],
- *     summary:  { high, medium, low },
- *     stats:    { bytes, lines, tokens },
- *     sha256:   hash of the exact code that was scanned,
- *     scannerVersion, scannedAt
- *   }
- *
- *   rejected  at least one "high" finding  -> must not run
- *   flagged   at least one "medium" finding -> a human should review
- *   approved  nothing above "low"
- *
- * This is a rule-based filter. It cannot prove code is safe: it looks for
- * known-dangerous constructs and for common ways of hiding them. The runtime
- * (isolation.mjs) is the second layer and does not trust this verdict.
- *
- * The text in `message` and `snippet` comes from the scanned code. Escape it
- * before putting it into HTML.
- */
-
 export const SCANNER_VERSION = 1;
 
 export const RULES = Object.freeze({
@@ -59,15 +35,15 @@ export const RULES = Object.freeze({
   LOOP001: ['low', 'Possible infinite loop']
 });
 
-// Names that are suspicious wherever they appear (even after a dot).
 const ANY_POSITION = new Set(['__proto__', 'prepareStackTrace', 'captureStackTrace']);
-// Names that are suspicious when used as a computed key: obj['process'].
+
 const SENSITIVE_KEYS = new Set([
   'process', 'require', 'eval', 'Function', 'globalThis', 'global',
   'mainModule', 'binding', 'dlopen', '__proto__', 'prepareStackTrace', 'captureStackTrace'
 ]);
+
 const SENSITIVE_MODULE_STRINGS = new Set(['child_process', 'worker_threads', 'cluster']);
-// Words after which "[" starts an array literal, not a property access.
+
 const NOT_VALUE_KEYWORDS = new Set([
   'return', 'typeof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case',
   'yield', 'await', 'instanceof', 'else', 'do'
@@ -141,7 +117,6 @@ export function scan(code, options = {}) {
       try {
         scanCode(code);
       } catch (e) {
-        // The scanner must never throw on hostile input: fail closed.
         add('SYN001', 'the scanner could not process this source: ' + String((e && e.message) || e).slice(0, 120));
       }
     }
@@ -180,7 +155,7 @@ export function scan(code, options = {}) {
         add('API008', `"${v}" is used to reach engine internals`, t.start);
       }
       if (t.prevDot) continue;
-      if (nv === ':') continue; // object key such as { process: 1 }
+      if (nv === ':') continue;
 
       switch (v) {
         case 'import':
@@ -314,7 +289,7 @@ export function scan(code, options = {}) {
   function stringRules(toks) {
     for (let i = 0; i < toks.length; i++) {
       if (toks[i].type !== 'string') continue;
-      if (isPunct(toks[i - 1], '+') && toks[i - 2] && toks[i - 2].type === 'string') continue; // not the start of a run
+      if (isPunct(toks[i - 1], '+') && toks[i - 2] && toks[i - 2].type === 'string') continue;
       const f = foldString(toks, i);
       if (!f) continue;
       const bare = f.value.startsWith('node:') ? f.value.slice(5) : f.value;

@@ -6,26 +6,6 @@ import { ServiceError } from './errors.mjs';
 import { analyze } from './source.mjs';
 import { normalizeRequest, sanitizeResponse } from './protocol.mjs';
 
-/**
- * Runtime that executes services in isolation.
- *
- *   const rt = createRuntime(options?);
- *   rt.register(id, { code | file, limits? })   make a service known (no worker yet)
- *   await rt.run(id, { method, url, headers, body })
- *        -> { status, headers, body, logs, warnings, meta }
- *   rt.unload(id, { force? })    stop the worker, keep the registration
- *   rt.unregister(id)            stop the worker, forget the service
- *   rt.stats()                   per-service state for dashboards
- *   await rt.shutdown()
- *
- * Lifecycle of a service:  registered -> (first request) loading -> ready
- * -> (unload / crash / timeout) -> unloaded -> (next request) loading ...
- *
- * One worker thread per service, one request at a time per worker. Requests
- * that arrive while the service is busy or still loading wait in a queue, so
- * a burst against an unloaded service starts exactly one worker.
- */
-
 const WORKER_URL = new URL('./sandbox-worker.mjs', import.meta.url);
 const ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 
@@ -33,8 +13,6 @@ export function createRuntime(userOptions = {}) {
   const options = { ...RUNTIME_DEFAULTS, ...userOptions };
   const services = new Map();
   let closed = false;
-
-  // ---------------------------------------------------------------- helpers
 
   function limitsFor(entry) {
     return { ...options, ...entry.limits };
@@ -121,13 +99,7 @@ export function createRuntime(userOptions = {}) {
     }
   }
 
-  // ---------------------------------------------------------------- workers
-
-  function spawn(entry) {
-    const lim = limitsFor(entry);
-    const body = prepareBody(entry); // throws LOAD_FAILED before any thread is started
-    const startedAt = performance.now();
-
+  function createWorkerInstance(lim) {
     const worker = new Worker(WORKER_URL, {
       env: {},
       argv: [],
@@ -148,6 +120,15 @@ export function createRuntime(userOptions = {}) {
       }
     });
     worker.unref();
+    return worker;
+  }
+
+  function spawn(entry) {
+    const lim = limitsFor(entry);
+    const body = prepareBody(entry);
+    const startedAt = performance.now();
+
+    const worker = createWorkerInstance(lim);
     entry.worker = worker;
     entry.state = 'loading';
 
@@ -157,8 +138,6 @@ export function createRuntime(userOptions = {}) {
       }, lim.initTimeoutMs + lim.watchdogGraceMs);
       entry.loading = { resolve, reject, timer, startedAt };
     });
-    // The rejection is always consumed by processJob; avoid an unhandled-rejection report
-    // for the (impossible) case where nobody awaits it.
     ready.catch(() => {});
 
     worker.on('message', (msg) => onMessage(entry, worker, msg));
@@ -209,7 +188,6 @@ export function createRuntime(userOptions = {}) {
     if (msg.ok) {
       let response;
       try {
-        // Validated again here: this thread never trusts what the worker sends.
         response = sanitizeResponse(msg.response, limitsFor(entry));
         const fromWorker = Array.isArray(msg.response && msg.response.warnings)
           ? msg.response.warnings.filter((x) => typeof x === 'string').slice(0, 20)
@@ -222,7 +200,12 @@ export function createRuntime(userOptions = {}) {
       }
       const logs = Array.isArray(msg.logs) ? msg.logs.filter((x) => typeof x === 'string').slice(0, 50) : [];
       entry.stats.lastHeapUsedBytes = Number(msg.heapUsedBytes) || 0;
-      p.resolve({ response, logs, handlerMs: Number(msg.handlerMs) || 0, heapUsedBytes: entry.stats.lastHeapUsedBytes });
+      p.resolve({
+        response,
+        logs,
+        handlerMs: Number(msg.handlerMs) || 0,
+        heapUsedBytes: entry.stats.lastHeapUsedBytes
+      });
       return;
     }
 
@@ -231,11 +214,9 @@ export function createRuntime(userOptions = {}) {
     const detail = e.message === undefined ? undefined : String(e.message);
 
     if (code === 'TIMEOUT') {
-      // State of a service that was interrupted half-way cannot be trusted: restart it.
       entry.stats.timeouts++;
       entry.stats.errors++;
       dropWorker(entry, worker, new ServiceError('TIMEOUT', { detail }));
-      // dropWorker rejected p only if it was still pending; it is not any more.
       p.reject(new ServiceError('TIMEOUT', { detail }));
       return;
     }
@@ -258,8 +239,6 @@ export function createRuntime(userOptions = {}) {
       worker.postMessage({ type: 'req', id, reqJson });
     });
   }
-
-  // ---------------------------------------------------------------- queue
 
   async function pump(entry) {
     if (entry.busy) return;
@@ -328,8 +307,6 @@ export function createRuntime(userOptions = {}) {
     }
   }
 
-  // ---------------------------------------------------------------- API
-
   function register(id, spec = {}) {
     if (closed) throw new ServiceError('SHUTTING_DOWN');
     if (typeof id !== 'string' || !ID_RE.test(id)) {
@@ -366,7 +343,6 @@ export function createRuntime(userOptions = {}) {
       }
     };
 
-    // Validate code given inline right away (a file is read when it is loaded).
     if (hasCode) {
       try {
         prepareBody(next);
@@ -377,7 +353,6 @@ export function createRuntime(userOptions = {}) {
 
     const old = services.get(id);
     if (old) {
-      // Update in place: stop the old version, fail what was waiting for it.
       stopEntry(old, new ServiceError('SHUTTING_DOWN', { detail: 'service was replaced' }));
     }
     services.set(id, next);
@@ -456,8 +431,24 @@ export function createRuntime(userOptions = {}) {
     };
   }
 
+  let evictionTimer = null;
+  if (options.idleEvictionMs > 0) {
+    evictionTimer = setInterval(() => {
+      const now = Date.now();
+      for (const entry of services.values()) {
+        if (entry.worker && entry.state === 'ready' && !entry.active && entry.queue.length === 0 && !entry.inFlight) {
+          if (entry.lastUsedAt && now - entry.lastUsedAt > options.idleEvictionMs) {
+            unload(entry.id);
+          }
+        }
+      }
+    }, Math.max(5000, Math.floor(options.idleEvictionMs / 2)));
+    if (evictionTimer.unref) evictionTimer.unref();
+  }
+
   async function shutdown() {
     closed = true;
+    if (evictionTimer) clearInterval(evictionTimer);
     const kills = [];
     for (const entry of services.values()) {
       const err = new ServiceError('SHUTTING_DOWN');

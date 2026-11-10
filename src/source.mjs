@@ -1,21 +1,6 @@
 import vm from 'node:vm';
 import { tokenize, TokenizeError, locate } from './tokenizer.mjs';
 
-/**
- * Service module format (the only one supported):
- *
- *     export default {
- *       async server(req) { return { status, headers, body }; }
- *     };
- *
- * Top-level statements before it (let count = 0; helper functions ...) are
- * allowed and keep their state between requests while the service is loaded.
- *
- * There is no module system inside the sandbox, so the code is turned into the
- * body of a function:   export default X   ->   __exports.default = X
- * Line numbers stay the same as in the original source.
- */
-
 export const FUNCTION_PARAMS = ['__exports'];
 export const SOURCE_FILENAME = 'service.js';
 
@@ -30,7 +15,6 @@ function problem(id, message, tok, lineStarts) {
   return p;
 }
 
-/** Finds the single top-level `export default`. */
 export function locateExportDefault(tokens, lineStarts) {
   const problems = [];
   let index = -1;
@@ -38,7 +22,7 @@ export function locateExportDefault(tokens, lineStarts) {
     const t = tokens[i];
     if (t.type !== 'name' || t.value !== 'export' || t.prevDot) continue;
     const next = tokens[i + 1];
-    if (next && next.type === 'punct' && next.value === ':') continue; // object key
+    if (next && next.type === 'punct' && next.value === ':') continue;
     if (next && next.type === 'name' && next.value === 'default') {
       if (t.depth !== 0) {
         problems.push(problem('EXP003', '`export default` must be a top-level statement', t, lineStarts));
@@ -68,13 +52,6 @@ function syntaxLine(err) {
   return m ? Number(m[1]) : undefined;
 }
 
-/**
- * Tokenizes the source, checks the export, builds the function body and
- * compiles it (compile only, nothing is executed).
- *
- * Returns { ok, body, tokens, lineStarts, errors }.
- * `tokens` / `lineStarts` are present whenever tokenizing succeeded.
- */
 export function analyze(code) {
   const out = { ok: false, body: null, tokens: null, lineStarts: null, errors: [] };
 

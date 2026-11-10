@@ -1,14 +1,3 @@
-/**
- * Every failure of the runtime is a ServiceError.
- *
- *   err.code            stable machine-readable code (see CODES)
- *   err.status          HTTP status the gateway should answer with
- *   err.publicMessage   generic text that is safe to show to any caller
- *   err.message         same as publicMessage
- *   err.detail          internal detail (may contain text written by the
- *                       service author - escape it before putting it in HTML)
- *   err.retryAfterSec   set for QUARANTINED / QUEUE_FULL
- */
 const CODES = {
   BAD_REQUEST:         [400, 'Invalid request'],
   REQUEST_TOO_LARGE:   [413, 'Request body too large'],

@@ -5,36 +5,25 @@ import { performance } from 'node:perf_hooks';
 import { sanitizeResponse } from './protocol.mjs';
 import { FUNCTION_PARAMS, SOURCE_FILENAME } from './source.mjs';
 
-/**
- * One worker thread = one service.
- *
- * The service code never runs in this realm. It runs in a separate V8
- * context (vm) that has:
- *   - no process, require, fs, fetch, timers, Buffer, URL ...
- *   - no import()                 (no dynamic-import callback is provided)
- *   - no eval / new Function      (codeGeneration.strings = false)
- *   - no ArrayBuffer / typed arrays / WebAssembly (they allocate memory that
- *     the heap limit does not count)
- *   - a console that only collects log lines
- *
- * Only strings cross the boundary (request in as JSON text, result out as
- * JSON text). No object from this realm is ever handed to the service, and
- * no promise from the service is ever awaited here; that closes the usual
- * ways out of a vm context.
- */
-
 const { timeoutMs, initTimeoutMs, maxResponseBytes, forceResponseHeaders } = workerData;
 const MAX_LOG_LINES = 50;
 
-// Runs inside the context, before any service code.
+const blockDynamicImport = () => {
+  throw new Error('Dynamic import is blocked in this sandbox');
+};
+
 const BOOTSTRAP = `(function () {
   'use strict';
   var g = globalThis;
-  var REMOVE = ['SharedArrayBuffer', 'Atomics', 'WebAssembly', 'ArrayBuffer', 'DataView',
+  var REMOVE = [
+    'SharedArrayBuffer', 'Atomics', 'WebAssembly', 'ArrayBuffer', 'DataView',
     'Int8Array', 'Uint8Array', 'Uint8ClampedArray', 'Int16Array', 'Uint16Array',
     'Int32Array', 'Uint32Array', 'Float32Array', 'Float64Array', 'BigInt64Array',
-    'BigUint64Array', 'Float16Array', 'FinalizationRegistry', 'WeakRef'];
-  for (var i = 0; i < REMOVE.length; i++) { try { delete g[REMOVE[i]]; } catch (e) {} }
+    'BigUint64Array', 'Float16Array', 'FinalizationRegistry', 'WeakRef'
+  ];
+  for (var i = 0; i < REMOVE.length; i++) {
+    try { delete g[REMOVE[i]]; } catch (e) {}
+  }
 
   var presolve = Promise.resolve.bind(Promise);
   var pthen = Promise.prototype.then;
@@ -118,10 +107,9 @@ function post(msg) {
 }
 
 function hostError(e) {
-  // Errors thrown by vm itself (timeouts etc.) are created in this realm.
   if (e && e.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') return { code: 'TIMEOUT' };
   let message = 'error';
-  try { message = String((e && e.message) || e).slice(0, 300); } catch { /* ignore */ }
+  try { message = String((e && e.message) || e).slice(0, 300); } catch {}
   return { code: 'HANDLER_ERROR', message };
 }
 
@@ -132,7 +120,11 @@ function createContext() {
     codeGeneration: { strings: false, wasm: false },
     microtaskMode: 'afterEvaluate'
   });
-  vm.runInContext(BOOTSTRAP, ctx, { timeout: initTimeoutMs, filename: 'bootstrap.js' });
+  vm.runInContext(BOOTSTRAP, ctx, {
+    timeout: initTimeoutMs,
+    filename: 'bootstrap.js',
+    importModuleDynamically: blockDynamicImport
+  });
 }
 
 function handleInit(m) {
@@ -141,12 +133,17 @@ function handleInit(m) {
     createContext();
     const fn = vm.compileFunction(m.body, FUNCTION_PARAMS, {
       filename: SOURCE_FILENAME,
-      parsingContext: ctx
+      parsingContext: ctx,
+      importModuleDynamically: blockDynamicImport
     });
     sandbox.__fn = fn;
     let r;
     try {
-      r = vm.runInContext('__bridge.init(__fn)', ctx, { timeout: initTimeoutMs, filename: 'init.js' });
+      r = vm.runInContext('__bridge.init(__fn)', ctx, {
+        timeout: initTimeoutMs,
+        filename: 'init.js',
+        importModuleDynamically: blockDynamicImport
+      });
     } finally {
       delete sandbox.__fn;
     }
@@ -165,12 +162,13 @@ function handleInit(m) {
   }
 }
 
-function handleReq(m) {
+async function handleReq(m) {
   const t0 = performance.now();
   try {
     vm.runInContext('__bridge.start(' + JSON.stringify(m.reqJson) + ')', ctx, {
       timeout: timeoutMs,
-      filename: 'invoke.js'
+      filename: 'invoke.js',
+      importModuleDynamically: blockDynamicImport
     });
   } catch (e) {
     return post({ type: 'res', id: m.id, error: hostError(e) });
@@ -179,8 +177,27 @@ function handleReq(m) {
   let out;
   let logJson;
   try {
-    out = vm.runInContext('__bridge.poll()', ctx, { timeout: 1000, filename: 'poll.js' });
-    logJson = vm.runInContext('__bridge.logs()', ctx, { timeout: 1000, filename: 'logs.js' });
+    out = vm.runInContext('__bridge.poll()', ctx, {
+      timeout: 1000,
+      filename: 'poll.js',
+      importModuleDynamically: blockDynamicImport
+    });
+
+    // Allow microtask ticks for async continuations to settle
+    for (let i = 0; i < 50 && out === 'P'; i++) {
+      await new Promise((r) => setImmediate(r));
+      out = vm.runInContext('__bridge.poll()', ctx, {
+        timeout: 1000,
+        filename: 'poll.js',
+        importModuleDynamically: blockDynamicImport
+      });
+    }
+
+    logJson = vm.runInContext('__bridge.logs()', ctx, {
+      timeout: 1000,
+      filename: 'logs.js',
+      importModuleDynamically: blockDynamicImport
+    });
   } catch (e) {
     return post({ type: 'res', id: m.id, error: hostError(e) });
   }
@@ -225,7 +242,7 @@ function handleReq(m) {
   try {
     const arr = JSON.parse(typeof logJson === 'string' ? logJson : '[]');
     if (Array.isArray(arr)) logs = arr.filter((x) => typeof x === 'string').slice(0, MAX_LOG_LINES);
-  } catch { /* ignore */ }
+  } catch {}
 
   post({
     type: 'res',
@@ -238,7 +255,6 @@ function handleReq(m) {
   });
 }
 
-// A rejected promise inside the service must not take the worker down.
 process.on('unhandledRejection', () => {});
 
 parentPort.on('message', (m) => {
