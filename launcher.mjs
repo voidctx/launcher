@@ -320,6 +320,9 @@ export const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { ok: true, newKey: rotation.newKey });
   }
   if (pathname === '/api/stats' && method === 'GET') {
+    if (!apiAuth) {
+      return sendJson(res, 401, { error: 'Authentication required' });
+    }
     return sendJson(res, 200, {
       runtime: 'Launcher-Workerd-V2',
       zeroDependency: true,
@@ -327,38 +330,51 @@ export const server = http.createServer(async (req, res) => {
     });
   }
   if (pathname === '/api/billing' && method === 'GET') {
-    if (!currentUser) {
+    if (!apiAuth) {
       return sendJson(res, 401, { error: 'Authentication required' });
     }
-    const summary = Store.getBillingSummary(currentUser.id);
+    const summary = Store.getBillingSummary(apiAuth.user.id);
     return sendJson(res, 200, { ok: true, billing: summary });
   }
   if (pathname === '/api/ratelimit/stats' && method === 'GET') {
-    if (!currentUser) {
+    if (!apiAuth) {
       return sendJson(res, 401, { error: 'Authentication required' });
     }
-    const userBucket = inspectBucket(`user:${currentUser.id}`, RATE_LIMIT_CONFIGS.user);
-    const apiBucket = inspectBucket(`key:${currentUser.apiKey}`, RATE_LIMIT_CONFIGS.apiKey);
-    return sendJson(res, 200, { user: userBucket, apiKey: apiBucket });
+    const apiBucket = inspectBucket(`key:${apiAuth.apiKey}`, RATE_LIMIT_CONFIGS.apiKey);
+    return sendJson(res, 200, { user: apiBucket, apiKey: apiBucket });
   }
   if (pathname === '/api/deploy' && method === 'POST') {
     try {
+      if (!apiAuth) {
+        return sendJson(res, 401, { error: 'Authentication required' });
+      }
       if (session && !validateCsrf(req, session)) {
         return sendJson(res, 403, { error: 'CSRF token validation failed' });
       }
       const { parsed } = await parseBody(req);
-      const { name, code, allowFlagged } = parsed;
+      const { name, code } = parsed;
       if (!isValidServiceName(name)) {
         throw new ServiceError('BAD_REQUEST', { detail: 'Valid service name required [a-zA-Z0-9_-]{1,64}' });
       }
       if (typeof code !== 'string' || code.length === 0) {
         throw new ServiceError('BAD_REQUEST', { detail: 'Code must be a non-empty string' });
       }
-      const result = deployService(name, code, { allowFlagged: !!allowFlagged });
+      const existing = Store.getService(name);
+      if (existing && existing.userId !== apiAuth.user.id && apiAuth.user.role !== 'admin') {
+        return sendJson(res, 403, { error: 'Forbidden: You do not own this service' });
+      }
+      if (!existing && hasService(name) && apiAuth.user.role !== 'admin') {
+        return sendJson(res, 403, { error: 'Forbidden: You do not own this service' });
+      }
+      if (parsed.allowFlagged && apiAuth.user.role !== 'admin') {
+        return sendJson(res, 403, { error: 'Admin role required to allow flagged code' });
+      }
+      const allowFlagged = apiAuth.user.role === 'admin' && Boolean(parsed.allowFlagged);
+      const result = deployService(name, code, { allowFlagged });
       if (result.deployed) {
         Store.saveService({
           name,
-          userId: currentUser ? currentUser.id : 'system',
+          userId: existing ? existing.userId : apiAuth.user.id,
           code
         });
       }
@@ -371,6 +387,16 @@ export const server = http.createServer(async (req, res) => {
     const parts = pathname.slice('/api/services/'.length).split('/');
     const name = parts[0];
     try {
+      if (!apiAuth) {
+        return sendJson(res, 401, { error: 'Authentication required' });
+      }
+      const existing = Store.getService(name);
+      if (existing && existing.userId !== apiAuth.user.id && apiAuth.user.role !== 'admin') {
+        return sendJson(res, 403, { error: 'Forbidden: You do not own this service' });
+      }
+      if (!existing && hasService(name) && apiAuth.user.role !== 'admin') {
+        return sendJson(res, 403, { error: 'Forbidden: You do not own this service' });
+      }
       const unloaded = unloadService(name, { force: true });
       return sendJson(res, 200, { service: name, unloaded });
     } catch (err) {
@@ -380,9 +406,19 @@ export const server = http.createServer(async (req, res) => {
   if (pathname.startsWith('/api/services/') && method === 'DELETE') {
     const name = pathname.slice('/api/services/'.length);
     try {
+      if (!apiAuth) {
+        return sendJson(res, 401, { error: 'Authentication required' });
+      }
+      const existing = Store.getService(name);
+      if (existing && existing.userId !== apiAuth.user.id && apiAuth.user.role !== 'admin') {
+        return sendJson(res, 403, { error: 'Forbidden: You do not own this service' });
+      }
+      if (!existing && hasService(name) && apiAuth.user.role !== 'admin') {
+        return sendJson(res, 403, { error: 'Forbidden: You do not own this service' });
+      }
       const removed = unregisterService(name);
-      Store.deleteService(name);
-      return sendJson(res, removed ? 200 : 404, { service: name, removed });
+      const storeDeleted = Store.deleteService(name);
+      return sendJson(res, (removed || storeDeleted) ? 200 : 404, { service: name, removed: removed || storeDeleted });
     } catch (err) {
       return sendError(req, res, err);
     }
@@ -402,10 +438,6 @@ export const server = http.createServer(async (req, res) => {
     callerType = 'api-key';
     callerId = apiAuth.user.id;
     rateCheck = consumeToken(`key:${apiAuth.apiKey}`, RATE_LIMIT_CONFIGS.apiKey);
-  } else if (sessionUser) {
-    callerType = 'session';
-    callerId = sessionUser.id;
-    rateCheck = consumeToken(`user:${sessionUser.id}`, RATE_LIMIT_CONFIGS.user);
   } else {
     rateCheck = consumeToken(`anon:${callerId}`, RATE_LIMIT_CONFIGS.anon);
   }

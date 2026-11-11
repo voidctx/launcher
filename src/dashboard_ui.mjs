@@ -312,11 +312,12 @@ export function renderDashboardPage({ user, session, services = [], recentLogs =
       const name = document.getElementById('svcName').value.trim();
       const code = document.getElementById('svcCode').value;
       const fb = document.getElementById('deployFeedback');
+      const apiKey = (document.getElementById('apiKeyVal')?.innerText || '').trim();
 
       try {
         const res = await fetch('/api/deploy', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+          headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken, 'x-api-key': apiKey },
           body: JSON.stringify({ name, code })
         });
         const data = await res.json();
@@ -327,7 +328,7 @@ export function renderDashboardPage({ user, session, services = [], recentLogs =
           setTimeout(() => location.reload(), 1000);
         } else {
           fb.style.color = '#f87171';
-          const reasons = (data.report && data.report.reasons) ? data.report.reasons.map(r => r.message).join('<br>') : (data.message || 'Deploy rejected');
+          const reasons = (data.report && data.report.reasons) ? data.report.reasons.map(r => r.message).join('<br>') : (data.message || data.error || 'Deploy rejected');
           fb.innerHTML = '✖ Deploy Rejected by Security Scanner:<br>' + reasons;
         }
       } catch (err) {
@@ -336,14 +337,16 @@ export function renderDashboardPage({ user, session, services = [], recentLogs =
     }
 
     async function unloadSvc(name) {
-      const res = await fetch('/api/services/' + name + '/unload', { method: 'POST', headers: { 'x-csrf-token': csrfToken } });
+      const apiKey = (document.getElementById('apiKeyVal')?.innerText || '').trim();
+      const res = await fetch('/api/services/' + name + '/unload', { method: 'POST', headers: { 'x-csrf-token': csrfToken, 'x-api-key': apiKey } });
       const data = await res.json();
       showToast('Worker memory for /' + name + ' evicted.');
     }
 
     async function deleteSvc(name) {
       if (!confirm('Delete service /' + name + '?')) return;
-      const res = await fetch('/api/services/' + name, { method: 'DELETE', headers: { 'x-csrf-token': csrfToken } });
+      const apiKey = (document.getElementById('apiKeyVal')?.innerText || '').trim();
+      const res = await fetch('/api/services/' + name, { method: 'DELETE', headers: { 'x-csrf-token': csrfToken, 'x-api-key': apiKey } });
       location.reload();
     }
   </script>
